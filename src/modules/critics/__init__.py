@@ -11,6 +11,8 @@ from .pac_dcg_ns import DCGCriticNS
 from .ippo import IPPOCritic
 from .ippo_ns import IPPOCriticNS
 from .poam import POAMCritic
+from .shapley import ShapleyCritic
+from .shapley2 import ShapleyCritic2
 REGISTRY = {}
 
 REGISTRY["coma_critic"] = COMACritic
@@ -26,6 +28,6 @@ REGISTRY["pac_dcg_critic_ns"] = DCGCriticNS
 REGISTRY["ippo_critic"] = IPPOCritic
 REGISTRY["ippo_critic_ns"] = IPPOCriticNS
 REGISTRY["poam_critic"] = POAMCritic
-
-
+REGISTRY["shapley_critic"] = ShapleyCritic
+REGISTRY["shapley_critic2"] = ShapleyCritic2
 
