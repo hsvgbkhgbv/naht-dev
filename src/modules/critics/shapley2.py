@@ -123,40 +123,48 @@ class ShapleyCritic2(nn.Module):
             h_norm = h_out = self.rnn(x) # MlpBase applies relu automatically
 
         # NOTE: JIANHONG ADDS NEW FUNCTIONS HERE
-        adj_subgraph = self._construct_graphs(math.prod(orig_batch_dims[:-1]))
+        adj_subgraph, adj_graph = self._construct_graphs(math.prod(orig_batch_dims[:-1]))
 
         # q = self.v_out(h_norm)
-        q = self._calculate_shapley_value(adj_subgraph, h_norm, orig_batch_dims) # shape=(batch_size*timestep, n_agent, hidden_size)
+        q_shapley, q_grand = self._calculate_shapley_value(adj_subgraph, adj_graph, h_norm, orig_batch_dims) # shape=(batch_size*timestep, n_agent, hidden_size)
 
         # hidden_state = th.stack([h_e.view(*orig_batch_dims, -1),
         #                         h_out.view(*orig_batch_dims, -1)], 
         #                         dim=-1)
         h_e = h_e.view(*orig_batch_dims, -1)
         h_out = h_out.view(*orig_batch_dims, -1)
-        return q.view(*orig_batch_dims, -1), h_e, h_out
+        return q_shapley.view(*orig_batch_dims, -1), q_grand.view(*orig_batch_dims, -1), h_e, h_out
 
     def _construct_graphs(self, batch_size):
         # Generate the adjacency matrices of complete graphs
         # This can be extended to the adjacency matrices of other graphs, for the benefit of robustenss of message passing due to agents of malfunctions.
-        adj_graph = th.ones((batch_size, self.n_agents, self.n_agents)) - th.eye(self.n_agents).unsqueeze(0).repeat(batch_size, 1, 1)
+        # NOTE: 1 indicates the edge to be masked.
+        invert_adj_graph = 1. - (th.ones((batch_size*self.args.sample_size, self.n_agents, self.n_agents)) \
+                            - th.eye(self.n_agents).unsqueeze(0).repeat(batch_size*self.args.sample_size, 1, 1))
 
         # Generate the adjacency matrices of subgraphs
-        p_matrix = th.ones((batch_size, self.n_agents, self.n_agents)) * self.args.p
+        p_matrix = th.ones((batch_size*self.args.sample_size, self.n_agents, self.n_agents)) * self.args.p
         subgraph_mask = th.bernoulli(p_matrix)
         adj_subgraph = subgraph_mask * adj_graph
 
-        return adj_subgraph
+        return adj_subgraph, adj_graph.view(self.args.sample_size, batch_size, self.n_agents, self.n_agents)[0]
 
-    def _calculate_shapley_value(self, adj_subgraph, feats, orig_batch_dims):
+    def _calculate_shapley_value(self, adj_subgraph, adj_graph, feats, orig_batch_dims):
         batch_size, timestep, n_agents = orig_batch_dims
-        feats = feats.view(batch_size*timestep, n_agents, -1)
-        feat_incl = self.gnn_incl(feats, attn_mask=adj_subgraph).view(-1, self.n_agents, self.hidden_dim)
-        feat_excl = self.gnn_excl(feats, attn_mask=adj_subgraph).view(-1, self.n_agents, self.hidden_dim)
-        coalition_value_incl = self.v_out(feat_incl)
-        coalition_value_excl = self.v_out(feat_excl)
+        feats = feats.view(batch_size, timestep, n_agents, -1)
 
-        # NOTE: At the moment, we only consider just sample size as 1 for ease
-        return (coalition_value_incl - coalition_value_excl).view(math.prod(orig_batch_dims))
+        feats_shapley = feats.unsqueeze(0).repeat(self.sample_size, 1, 1, 1, 1).view(batch_size*timestep*self.args.sample_size, n_agents, -1)
+        feat_incl = self.gnn_incl(feats_shapley, attn_mask=adj_subgraph).view(-1, self.hidden_dim)
+        feat_excl = self.gnn_excl(feats_shapley, attn_mask=adj_subgraph).view(-1, self.hidden_dim)
+        coalition_value_incl = self.v_out(feat_incl).view(self.sample_size, batch_size, timestep, n_agents, -1)
+        coalition_value_excl = self.v_out(feat_excl).view(self.sample_size, batch_size, timestep, n_agents, -1)
+        shapley_value = (coalition_value_incl - coalition_value_excl).mean(0)
+
+        feats_common = feats.view(batch_size*timestep, n_agents, -1)
+        feat_grand = self.gnn_incl(feats_common, attn_mask=adj_graph).view(-1, self.hidden_dim)
+        grand_coalition_value = self.v_out(feat_grand)
+
+        return shapley_value.view(math.prod(orig_batch_dims)), grand_coalition_value.view(math.prod(orig_batch_dims))
 
     def _build_inputs(self, batch, t=None):
         '''if t=None, then returns inputs for all timesteps

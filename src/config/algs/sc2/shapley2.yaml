@@ -67,3 +67,4 @@ mask_type: "team" # choices: [team, agent]
 # ind: compute individual mask from available actions
 
 p: 0.5
+sample_size: 5

@@ -388,8 +388,10 @@ class ShapleyLearner2:
     def critic_forward_all(self, critic, batch, hidden_states):
         '''Compute values using given hidden states, 
         for all timesteps in a single forward pass.'''
-        v, _, _ = critic.forward(batch, hidden_states, t=None)
-        return v
+        # v, _, _ = critic.forward(batch, hidden_states, t=None)
+        v_shapley, v_grand, _, _ = critic.forward(batch, hidden_states, t=None)
+        # return v
+        return v_shapley, v_grand
 
     def actor_forward_all(self, mac, batch, actions):
         '''Compute log probs and entropy using given hidden states 
